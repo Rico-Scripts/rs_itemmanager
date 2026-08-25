@@ -394,6 +394,75 @@ local function quotedKey(source, quoteAt)
     return ok and value or nil, after
 end
 
+local function skipCommentOnly(source, index)
+    local equals = source:match('^%-%-%[(=*)%[', index)
+    if equals then
+        local close = ']' .. equals .. ']'
+        local closeAt = source:find(close, index + 4 + #equals, true)
+        return closeAt and (closeAt + #close) or (#source + 1)
+    end
+    return source:find('\n', index + 2, true) or (#source + 1)
+end
+
+local function normalizeOuterBlankLines(content)
+    local returnAt = content:find('return', 1, true)
+    local outerOpen = returnAt and content:find('{', returnAt + 6, true)
+    local outerClose = outerOpen and matchingBrace(content, outerOpen)
+    if not outerOpen or not outerClose then return content end
+
+    local newline = content:find('\r\n', 1, true) and '\r\n' or '\n'
+    local result = { content:sub(1, outerOpen) }
+    local index, depth = outerOpen + 1, 1
+
+    while index < outerClose do
+        local char = content:sub(index, index)
+        if char == "'" or char == '"' or char == '`' then
+            local after = skipString(content, index, char)
+            result[#result + 1] = content:sub(index, after - 1)
+            index = after
+        elseif content:sub(index, index + 1) == '--' then
+            local after = skipCommentOnly(content, index)
+            result[#result + 1] = content:sub(index, after - 1)
+            index = after
+        else
+            local equals = char == '[' and content:match('^%[(=*)%[', index)
+            if equals then
+                local close = ']' .. equals .. ']'
+                local closeAt = content:find(close, index + 2 + #equals, true)
+                local after = closeAt and (closeAt + #close) or outerClose
+                result[#result + 1] = content:sub(index, after - 1)
+                index = after
+            elseif char == '{' then
+                depth = depth + 1
+                result[#result + 1] = char
+                index = index + 1
+            elseif char == '}' then
+                depth = depth - 1
+                result[#result + 1] = char
+                index = index + 1
+            elseif depth == 1 and char:match('%s') then
+                local endAt = index
+                while endAt < outerClose and content:sub(endAt, endAt):match('%s') do endAt = endAt + 1 end
+                local whitespace = content:sub(index, endAt - 1)
+                local _, lineBreaks = whitespace:gsub('\n', '')
+                if lineBreaks > 2 then
+                    local indentation = whitespace:match('\n([ \t]*)$') or ''
+                    result[#result + 1] = newline .. newline .. indentation
+                else
+                    result[#result + 1] = whitespace
+                end
+                index = endAt
+            else
+                result[#result + 1] = char
+                index = index + 1
+            end
+        end
+    end
+
+    result[#result + 1] = content:sub(outerClose)
+    return table.concat(result)
+end
+
 local function removeItemDefinitions(content, removeSet)
     local returnAt = content:find('return', 1, true)
     if not returnAt then return nil, 'return-tabel niet gevonden' end
@@ -441,7 +510,7 @@ local function removeItemDefinitions(content, removeSet)
         local range = ranges[rangeIndex]
         content = content:sub(1, range.first - 1) .. content:sub(range.last + 1)
     end
-    return content
+    return normalizeOuterBlankLines(content)
 end
 
 local function performCleanup(report)

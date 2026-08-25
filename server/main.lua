@@ -63,7 +63,18 @@ local function constructor(name, ...)
     return { __rs_constructor = name, values = { ... } }
 end
 
-local function safeEnvironment()
+local function safeUnknownProxy()
+    local proxy
+    proxy = setmetatable({}, {
+        __index = function() return proxy end,
+        __call = function() return nil end,
+        __len = function() return 0 end,
+        __tostring = function() return '<afgeschermde globale waarde>' end,
+    })
+    return proxy
+end
+
+local function safeEnvironment(allowUnknown)
     local environment = {
         QBShared = {},
         Config = {},
@@ -79,17 +90,19 @@ local function safeEnvironment()
     -- Laat _G alleen naar deze afgeschermde omgeving verwijzen.
     environment._G = environment
 
+    local unknownProxy = allowUnknown and safeUnknownProxy() or nil
     return setmetatable(environment, {
         __index = function(_, key)
+            if unknownProxy then return unknownProxy end
             error(('niet-toegestane globale waarde: %s'):format(tostring(key)), 2)
         end
     })
 end
 
-local function loadLuaTable(content, chunkName)
+local function loadLuaTable(content, chunkName, allowUnknown)
     if type(content) ~= 'string' or content == '' then return nil, 'leeg bestand' end
 
-    local environment = safeEnvironment()
+    local environment = safeEnvironment(allowUnknown)
     local chunk, compileError = load(content, chunkName, 't', environment)
     local formatHint
     if not chunk then
@@ -380,7 +393,7 @@ local function installedOxItems()
     if not content then return nil, nil, 'ox_inventory-itemsbestand niet gevonden' end
     local clean, stripError = stripManagedBlock(content)
     if not clean then return nil, content, stripError end
-    local items, err = loadLuaTable(clean, ('@@%s/%s'):format(Config.OxInventoryResource, Config.OxItemsFile))
+    local items, err = loadLuaTable(clean, ('@@%s/%s'):format(Config.OxInventoryResource, Config.OxItemsFile), true)
     if not items then return nil, content, ('items.lua kon niet worden gelezen: %s'):format(err) end
     return items, content
 end
@@ -529,7 +542,7 @@ local function injectBlock(content, block)
     local separator = significant ~= '{' and significant ~= ',' and ',' or ''
     local updated = before .. separator .. '\n\n' .. block .. '\n' .. after
 
-    local parsed, parseError = loadLuaTable(updated, '@@rs_itemmanager/generated_items.lua')
+    local parsed, parseError = loadLuaTable(updated, '@@rs_itemmanager/generated_items.lua', true)
     if not parsed then return nil, ('gegenereerd bestand is ongeldig: %s'):format(parseError) end
     return updated
 end

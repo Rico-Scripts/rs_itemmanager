@@ -116,7 +116,7 @@ De console toont daarna een tijdelijke bevestigingscode en schrijft `data/cleanu
 rsitemcleanup remove BEVESTIGINGSCODE
 ```
 
-Verwijderen wordt geblokkeerd als een databasescan of resourcescan onvolledig is, of als er spelers online zijn. Vóór wijzigingen wordt `items.lua` in `rs_itemmanager/data/` geback-upt. Iedere verwijderde PNG krijgt daar eveneens een back-up. Voeg vaste items die nooit verwijderd mogen worden toe aan `Config.Cleanup.ProtectedItems`.
+Verwijderen wordt geblokkeerd als een databasescan of resourcescan onvolledig is, of als er spelers online zijn. Vóór wijzigingen wordt `items.lua` in `rs_itemmanager/data/` geback-upt. Iedere verwijderde PNG krijgt daar eveneens een back-up. De standaard ox_inventory- en ESX-basisitems staan vooraf in `Config.Cleanup.ProtectedItems` en worden nooit verwijderd. Voeg eigen vaste items aan dezelfde lijst toe.
 
 Na het verwijderen worden overtollige lege regels tussen itemblokken automatisch opgeruimd. Lege regels binnen functies, tabellen en teksten blijven behouden.
 

@@ -38,6 +38,15 @@ return {
 }
 ```
 
+Losse ox_inventory-snippets worden ook ondersteund. Deze bestanden hoeven dus niet handmatig met `return { ... }` te worden ingepakt:
+
+```lua
+['lockpick_advanced'] = {
+    label = 'Geavanceerde lockpick',
+    weight = 300
+},
+```
+
 ## Afbeeldingen
 
 De manager gebruikt `client.image` of standaard `<itemnaam>.png` en zoekt onder andere in:

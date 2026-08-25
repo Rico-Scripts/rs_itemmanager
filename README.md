@@ -118,6 +118,8 @@ rsitemcleanup remove BEVESTIGINGSCODE
 
 Verwijderen wordt geblokkeerd als een databasescan of resourcescan onvolledig is, of als er spelers online zijn. Vóór wijzigingen wordt `items.lua` in `rs_itemmanager/data/` geback-upt. Iedere verwijderde PNG krijgt daar eveneens een back-up. Voeg vaste items die nooit verwijderd mogen worden toe aan `Config.Cleanup.ProtectedItems`.
 
+Na het verwijderen worden overtollige lege regels tussen itemblokken automatisch opgeruimd. Lege regels binnen functies, tabellen en teksten blijven behouden.
+
 ## Logging
 
 De resource verstuurt het event `rs_discordlogs:server:log`. Vul eventueel daarnaast `Config.Webhook` in voor directe Discord-webhooklogging.

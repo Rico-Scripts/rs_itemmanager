@@ -1,6 +1,6 @@
 # RS Item Manager
 
-Scant alle FiveM-resources op itembestanden en voegt ontbrekende definities toe aan `ox_inventory/data/items.lua`.
+Scant alle FiveM-resources op itembestanden, voegt ontbrekende definities toe aan `ox_inventory/data/items.lua` en kopieert gevonden PNG-afbeeldingen naar `ox_inventory/web/images/`.
 
 ## Installatie
 
@@ -38,6 +38,27 @@ return {
 }
 ```
 
+## Afbeeldingen
+
+De manager gebruikt `client.image` of standaard `<itemnaam>.png` en zoekt onder andere in:
+
+```text
+images/
+html/images/
+web/images/
+inventory_images/
+install/images/
+installation/images/
+```
+
+Voor een afwijkende map voeg je in de `fxmanifest.lua` van het bronscript toe:
+
+```lua
+rs_item_images 'assets/inventory'
+```
+
+Alleen veilige PNG-bestandsnamen worden automatisch gekopieerd. Dit sluit aan op de standaard `web/images/*.png`-regel van ox_inventory. Bestaande identieke afbeeldingen worden overgeslagen. Bij een andere afbeelding met dezelfde naam blijft standaard de bestaande versie staan en verschijnt het conflict in het rapport. Met `Config.ImageConflictPolicy = 'overwrite'` wordt eerst een back-up gemaakt en daarna de nieuwe afbeelding geplaatst.
+
 Ook statische `QBShared.Items`-tabellen worden herkend en naar het ox_inventory-formaat geconverteerd. Itemdefinities met Lua-functies worden voor de veiligheid overgeslagen en in het rapport vermeld.
 
 ## Commando's
@@ -56,9 +77,8 @@ Eventueel:
 add_ace group.admin rs_itemmanager.manage allow
 ```
 
-Het volledige scanrapport staat in `rs_itemmanager/data/report.json`. Bestaande items worden nooit overschreven. Het automatisch beheerde blok in `ox_inventory/data/items.lua` kan bij een volgende scan veilig worden bijgewerkt.
+Het volledige scanrapport staat in `rs_itemmanager/data/report.json`, inclusief gekopieerde, ontbrekende en conflicterende afbeeldingen. Bestaande items worden nooit overschreven. Het automatisch beheerde blok in `ox_inventory/data/items.lua` kan bij een volgende scan veilig worden bijgewerkt.
 
 ## Logging
 
 De resource verstuurt het event `rs_discordlogs:server:log`. Vul eventueel daarnaast `Config.Webhook` in voor directe Discord-webhooklogging.
-

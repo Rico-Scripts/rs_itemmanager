@@ -63,3 +63,47 @@ Config.LogEvent = 'rs_discordlogs:server:log'
 -- Console of ACE-toegang. Voor spelers: add_ace group.admin rs_itemmanager.manage allow
 Config.Command = 'rsitems'
 Config.AcePermission = 'rs_itemmanager.manage'
+
+Config.Cleanup = {
+    Enabled = true,
+    Command = 'rsitemcleanup',
+    ConfirmationSeconds = 300,
+    RequireEmptyServer = true,
+    AllowIncompleteResourceScan = false,
+    MaxTextFileBytes = 5 * 1024 * 1024,
+
+    ProtectedItems = {
+        ['money'] = true,
+        ['black_money'] = true,
+    },
+
+    TextExtensions = {
+        ['lua'] = true,
+        ['js'] = true,
+        ['ts'] = true,
+        ['json'] = true,
+        ['sql'] = true,
+        ['cfg'] = true,
+        ['md'] = true,
+        ['txt'] = true,
+        ['html'] = true,
+        ['xml'] = true,
+        ['yml'] = true,
+        ['yaml'] = true,
+    },
+
+    ExcludedDirectories = {
+        ['.git'] = true,
+        ['node_modules'] = true,
+        ['cache'] = true,
+        ['stream'] = true,
+    },
+
+    -- ESX Legacy / ox_inventory-opslag.
+    DatabaseQueries = {
+        { source = 'players', query = "SELECT inventory AS data FROM users WHERE inventory IS NOT NULL AND inventory <> ''" },
+        { source = 'stashes', query = "SELECT data FROM ox_inventory WHERE data IS NOT NULL AND data <> ''" },
+        { source = 'trunks', query = "SELECT trunk AS data FROM owned_vehicles WHERE trunk IS NOT NULL AND trunk <> ''" },
+        { source = 'gloveboxes', query = "SELECT glovebox AS data FROM owned_vehicles WHERE glovebox IS NOT NULL AND glovebox <> ''" },
+    },
+}

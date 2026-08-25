@@ -9,8 +9,15 @@ Scant alle FiveM-resources op itembestanden, voegt ontbrekende definities toe aa
 
 ```cfg
 ensure ox_lib
+ensure oxmysql
 ensure rs_itemmanager
 ensure ox_inventory
+```
+
+Omdat moderne FXServer-versies schrijven naar een andere resource standaard blokkeren, voeg je ook toe:
+
+```cfg
+add_filesystem_permission rs_itemmanager write ox_inventory
 ```
 
 3. Start de server. Bij iedere wijziging wordt eerst een back-up in `ox_inventory/data/` geplaatst.
@@ -87,6 +94,29 @@ add_ace group.admin rs_itemmanager.manage allow
 ```
 
 Het volledige scanrapport staat in `rs_itemmanager/data/report.json`, inclusief gekopieerde, ontbrekende en conflicterende afbeeldingen. Bestaande items worden nooit overschreven. Het automatisch beheerde blok in `ox_inventory/data/items.lua` kan bij een volgende scan veilig worden bijgewerkt.
+
+## Ongebruikte items veilig opruimen
+
+De cleanup scant alle leesbare tekstbestanden van alle resources en controleert bij ESX bovendien:
+
+- `users.inventory` voor spelers;
+- `ox_inventory.data` voor stashes;
+- `owned_vehicles.trunk` voor koffers;
+- `owned_vehicles.glovebox` voor dashboardkastjes.
+
+Eerst uitsluitend controleren:
+
+```text
+rsitemcleanup scan
+```
+
+De console toont daarna een tijdelijke bevestigingscode en schrijft `data/cleanup-report.json`. Controleer de lijst `removable` en voer binnen vijf minuten uit:
+
+```text
+rsitemcleanup remove BEVESTIGINGSCODE
+```
+
+Verwijderen wordt geblokkeerd als een databasescan of resourcescan onvolledig is, of als er spelers online zijn. Vóór wijzigingen wordt `items.lua` in `rs_itemmanager/data/` geback-upt. Iedere verwijderde PNG krijgt daar eveneens een back-up. Voeg vaste items die nooit verwijderd mogen worden toe aan `Config.Cleanup.ProtectedItems`.
 
 ## Logging
 

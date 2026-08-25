@@ -87,12 +87,22 @@ local function loadLuaTable(content, chunkName)
 
     local environment = safeEnvironment()
     local chunk, compileError = load(content, chunkName, 't', environment)
+    local formatHint
+    if not chunk then
+        chunk = load('return ' .. content, chunkName .. ':bare-table', 't', environment)
+        if chunk then
+            formatHint = 'bare-table'
+        else
+            chunk = load('return {\n' .. content .. '\n}', chunkName .. ':loose-items', 't', environment)
+            if chunk then formatHint = 'loose-items' end
+        end
+    end
     if not chunk then return nil, compileError end
 
     local ok, returned = pcall(chunk)
     if not ok then return nil, returned end
 
-    if type(returned) == 'table' then return returned end
+    if type(returned) == 'table' then return returned, nil, formatHint end
     if type(environment.QBShared.Items) == 'table' then return environment.QBShared.Items, nil, 'qb' end
     if type(environment.Config.Items) == 'table' then return environment.Config.Items end
 

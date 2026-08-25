@@ -9,7 +9,9 @@ local function stripManagedBlock(content)
     local endAt = content:find(END_MARKER, beginAt, true)
     if not endAt then return nil, 'beginmarkering gevonden zonder eindmarkering' end
     endAt = endAt + #END_MARKER
-    return content:sub(1, beginAt - 1) .. content:sub(endAt + 1)
+    local before = content:sub(1, beginAt - 1):gsub('[ \t\r\n]+$', '')
+    local after = content:sub(endAt + 1):gsub('^[ \t\r\n]+', '')
+    return before .. '\n' .. after
 end
 
 local function console(level, message)
@@ -215,6 +217,150 @@ local function resourcePaths(resource)
     return paths
 end
 
+local function pathDirectory(path)
+    return path and path:match('^(.*)/[^/]+$') or nil
+end
+
+local function imageDirectories(resource)
+    local directories, used = {}, {}
+    local function add(directory)
+        if type(directory) ~= 'string' then return end
+        directory = directory:gsub('\\', '/'):gsub('^/+', ''):gsub('/+$', '')
+        if directory:find('..', 1, true) or used[directory] then return end
+        used[directory] = true
+        directories[#directories + 1] = directory
+    end
+
+    local count = GetNumResourceMetadata(resource, 'rs_item_images') or 0
+    for index = 0, count - 1 do add(GetResourceMetadata(resource, 'rs_item_images', index)) end
+    for _, directory in ipairs(Config.ImageDirectories or {}) do add(directory) end
+    return directories
+end
+
+local function safeImageName(value)
+    if type(value) ~= 'string' or value == '' or value:match('^https?://') then
+        return nil, 'ongeldige of externe afbeeldingsnaam'
+    end
+
+    value = value:gsub('\\', '/')
+    local name = value:match('([^/]+)$')
+    if not name or not name:match('^[%w_%.%-]+$') or name:find('..', 1, true) then
+        return nil, 'onveilige afbeeldingsnaam'
+    end
+
+    local extension = name:match('%.([%w]+)$')
+    extension = extension and extension:lower()
+    if not extension or not (Config.AllowedImageExtensions or {})[extension] then
+        return nil, ('bestandstype .%s wordt niet automatisch gekopieerd'):format(extension or '?')
+    end
+
+    return name, nil, value
+end
+
+local function imageRequest(name, item)
+    local configured = type(item.client) == 'table' and item.client.image or nil
+    return configured or (name .. '.png')
+end
+
+local function findImage(resource, itemFile, requestedPath)
+    local imageName, validationError, normalizedPath = safeImageName(requestedPath)
+    if not imageName then return nil, nil, validationError end
+
+    local paths, used = {}, {}
+    local function add(path)
+        if type(path) ~= 'string' then return end
+        path = path:gsub('\\', '/'):gsub('^/+', '')
+        if path == '' or path:find('..', 1, true) or used[path] then return end
+        used[path] = true
+        paths[#paths + 1] = path
+    end
+
+    add(normalizedPath)
+    local sourceDirectory = pathDirectory(itemFile)
+    if sourceDirectory then
+        add(sourceDirectory .. '/' .. normalizedPath)
+        add(sourceDirectory .. '/images/' .. imageName)
+    end
+    for _, directory in ipairs(imageDirectories(resource)) do
+        add(directory ~= '' and (directory .. '/' .. imageName) or imageName)
+    end
+
+    for _, path in ipairs(paths) do
+        local content = LoadResourceFile(resource, path)
+        if content then return imageName, { data = content, resource = resource, file = path } end
+    end
+    return imageName
+end
+
+local function registerImage(report, resource, itemFile, itemName, item)
+    if not Config.CopyImages then return end
+
+    local requestedPath = imageRequest(itemName, item)
+    local imageName, source, imageError = findImage(resource, itemFile, requestedPath)
+    if not imageName then
+        local key = ('%s:%s'):format(resource, tostring(requestedPath))
+        if not report.imageErrorKeys[key] then
+            report.imageErrorKeys[key] = true
+            report.imageErrors[#report.imageErrors + 1] = {
+                item = itemName,
+                resource = resource,
+                image = tostring(requestedPath),
+                error = imageError,
+            }
+        end
+        return
+    end
+
+    local state = report.imageStates[imageName]
+    if not state then
+        state = { image = imageName, item = itemName, requestedBy = {} }
+        report.imageStates[imageName] = state
+    end
+    state.requestedBy[#state.requestedBy + 1] = { item = itemName, resource = resource, file = itemFile }
+
+    if not source then return end
+    if not state.source then
+        state.source = source
+        report.imageCandidates[imageName] = source
+        return
+    end
+
+    if state.source.data ~= source.data then
+        local key = ('source:%s:%s:%s'):format(imageName, state.source.resource, source.resource)
+        if not report.imageConflictKeys[key] then
+            report.imageConflictKeys[key] = true
+            report.imageConflicts[#report.imageConflicts + 1] = {
+                image = imageName,
+                reason = 'verschillende bronbestanden met dezelfde naam',
+                kept = state.source.resource .. '/' .. state.source.file,
+                conflicting = source.resource .. '/' .. source.file,
+            }
+        end
+    end
+end
+
+local function finalizeImageScan(report)
+    for imageName, state in pairs(report.imageStates) do
+        if state.source then
+            report.imageStats.found = report.imageStats.found + 1
+        elseif LoadResourceFile(
+            Config.OxInventoryResource,
+            (Config.OxImagesDirectory or 'web/images'):gsub('/+$', '') .. '/' .. imageName
+        ) then
+            report.imageStats.existing = report.imageStats.existing + 1
+        else
+            report.imageMissing[#report.imageMissing + 1] = {
+                image = imageName,
+                item = state.item,
+                requestedBy = state.requestedBy,
+            }
+        end
+    end
+    report.imageStats.missing = #report.imageMissing
+    report.imageStats.conflicts = #report.imageConflicts
+    report.imageStats.errors = #report.imageErrors
+end
+
 local function installedOxItems()
     local content = LoadResourceFile(Config.OxInventoryResource, Config.OxItemsFile)
     if not content then return nil, nil, 'ox_inventory-itemsbestand niet gevonden' end
@@ -242,6 +388,21 @@ local function scan()
         targetContent = targetContent,
         installedItems = installed,
         conflicted = {},
+        imageCandidates = {},
+        imageStates = {},
+        imageMissing = {},
+        imageConflicts = {},
+        imageErrors = {},
+        imageErrorKeys = {},
+        imageConflictKeys = {},
+        imageStats = {
+            found = 0,
+            copied = 0,
+            existing = 0,
+            missing = 0,
+            conflicts = 0,
+            errors = 0,
+        },
     }
 
     if not installed then return report end
@@ -271,6 +432,7 @@ local function scan()
                 else
                     for name, item in pairs(normalizeItems(rawItems, formatHint)) do
                         report.found = report.found + 1
+                        registerImage(report, resource, path, name, item)
                         local unsupported, reason = hasUnsupportedValue(item)
                         if unsupported then
                             report.skipped[#report.skipped + 1] = { item = name, resource = resource, file = path, reason = reason }
@@ -296,6 +458,7 @@ local function scan()
         end
     end
 
+    finalizeImageScan(report)
     report.installable = tableCount(report.items)
     return report
 end
@@ -312,6 +475,10 @@ local function publicReport(report)
         skipped = report.skipped,
         errors = report.errors,
         targetError = report.targetError,
+        images = report.imageStats,
+        imageMissing = report.imageMissing,
+        imageConflicts = report.imageConflicts,
+        imageErrors = report.imageErrors,
     }
 end
 
@@ -342,9 +509,9 @@ local function injectBlock(content, block)
     end
     if not closeAt then return nil, 'afsluitende accolade van de itemtabel ontbreekt' end
 
-    local before = clean:sub(1, closeAt - 1)
+    local before = clean:sub(1, closeAt - 1):gsub('[ \t\r\n]+$', '')
     local after = clean:sub(closeAt)
-    local significant = before:match('([^%s])%s*$')
+    local significant = before:sub(-1)
     local separator = significant ~= '{' and significant ~= ',' and ',' or ''
     local updated = before .. separator .. '\n\n' .. block .. '\n' .. after
 
@@ -353,31 +520,100 @@ local function injectBlock(content, block)
     return updated
 end
 
-local function install(report)
-    if report.targetError then return false, report.targetError end
-    local hasManagedBlock = report.targetContent:find(BEGIN_MARKER, 1, true) ~= nil
-    if report.installable == 0 and not hasManagedBlock then
-        return true, 'geen ontbrekende items gevonden', 0
-    end
+local function copyImages(report)
+    if not Config.CopyImages then return true end
 
-    local block, blockError = buildManagedBlock(report)
-    if not block then return false, blockError end
-    local updated, injectError = injectBlock(report.targetContent, block)
-    if not updated then return false, injectError end
-    if updated == report.targetContent then return true, 'items.lua is al actueel', 0 end
+    local targetDirectory = (Config.OxImagesDirectory or 'web/images'):gsub('/+$', '')
+    local writeFailed = false
+    for _, imageName in ipairs(sortedKeys(report.imageCandidates)) do
+        local source = report.imageCandidates[imageName]
+        local targetPath = targetDirectory .. '/' .. imageName
+        local existing = LoadResourceFile(Config.OxInventoryResource, targetPath)
 
-    if Config.CreateBackup then
-        local backup = ('data/items.rs-backup-%s.lua'):format(os.date('%Y%m%d-%H%M%S'))
-        if not SaveResourceFile(Config.OxInventoryResource, backup, report.targetContent, -1) then
-            return false, 'back-up kon niet worden geschreven; installatie afgebroken'
+        if not existing then
+            if SaveResourceFile(Config.OxInventoryResource, targetPath, source.data, #source.data) then
+                report.imageStats.copied = report.imageStats.copied + 1
+            else
+                writeFailed = true
+                report.imageErrors[#report.imageErrors + 1] = {
+                    image = imageName,
+                    resource = source.resource,
+                    file = source.file,
+                    error = 'afbeelding kon niet naar ox_inventory worden geschreven',
+                }
+            end
+        elseif existing == source.data then
+            report.imageStats.existing = report.imageStats.existing + 1
+        else
+            report.imageStats.conflicts = report.imageStats.conflicts + 1
+            report.imageConflicts[#report.imageConflicts + 1] = {
+                image = imageName,
+                reason = 'ox_inventory bevat al een andere afbeelding met deze naam',
+                kept = Config.ImageConflictPolicy == 'overwrite' and source.resource .. '/' .. source.file or targetPath,
+                conflicting = Config.ImageConflictPolicy == 'overwrite' and targetPath or source.resource .. '/' .. source.file,
+            }
+
+            if Config.ImageConflictPolicy == 'overwrite' then
+                local backupName = ('rs-backup-%s-%s'):format(os.date('%Y%m%d-%H%M%S'), imageName)
+                local backupPath = targetDirectory .. '/' .. backupName
+                if not SaveResourceFile(Config.OxInventoryResource, backupPath, existing, #existing) then
+                    writeFailed = true
+                    report.imageErrors[#report.imageErrors + 1] = {
+                        image = imageName,
+                        error = 'bestaande afbeelding kon niet worden geback-upt; overschrijven afgebroken',
+                    }
+                elseif SaveResourceFile(Config.OxInventoryResource, targetPath, source.data, #source.data) then
+                    report.imageStats.copied = report.imageStats.copied + 1
+                else
+                    writeFailed = true
+                    report.imageErrors[#report.imageErrors + 1] = {
+                        image = imageName,
+                        error = 'nieuwe afbeelding kon na de back-up niet worden geschreven',
+                    }
+                end
+            end
         end
     end
 
-    if not SaveResourceFile(Config.OxInventoryResource, Config.OxItemsFile, updated, -1) then
-        return false, 'items.lua kon niet worden geschreven'
+    report.imageStats.errors = #report.imageErrors
+    return not writeFailed
+end
+
+local function install(report)
+    if report.targetError then return false, report.targetError end
+    local hasManagedBlock = report.targetContent:find(BEGIN_MARKER, 1, true) ~= nil
+    local itemFileChanged = false
+
+    if report.installable > 0 or hasManagedBlock then
+        local block, blockError = buildManagedBlock(report)
+        if not block then return false, blockError end
+        local updated, injectError = injectBlock(report.targetContent, block)
+        if not updated then return false, injectError end
+
+        if updated ~= report.targetContent then
+            if Config.CreateBackup then
+                local backup = ('data/items.rs-backup-%s.lua'):format(os.date('%Y%m%d-%H%M%S'))
+                if not SaveResourceFile(Config.OxInventoryResource, backup, report.targetContent, -1) then
+                    return false, 'back-up kon niet worden geschreven; installatie afgebroken'
+                end
+            end
+
+            if not SaveResourceFile(Config.OxInventoryResource, Config.OxItemsFile, updated, -1) then
+                return false, 'items.lua kon niet worden geschreven'
+            end
+            itemFileChanged = true
+        end
     end
 
-    return true, ('%d items toegevoegd; herstart ox_inventory of de server'):format(report.installable), report.installable
+    local imagesOk = copyImages(report)
+    local message = ('%d items toegevoegd, %d afbeeldingen gekopieerd, %d al aanwezig, %d ontbrekend, %d conflicten'):format(
+        itemFileChanged and report.installable or 0,
+        report.imageStats.copied,
+        report.imageStats.existing,
+        report.imageStats.missing,
+        report.imageStats.conflicts
+    )
+    return imagesOk, message, itemFileChanged and report.installable or 0, report.imageStats.copied
 end
 
 local function run(shouldInstall)
@@ -396,15 +632,18 @@ local function run(shouldInstall)
     ))
 
     if not shouldInstall then return true end
-    local ok, message, installedCount = install(report)
+    local ok, message, installedCount, copiedImages = install(report)
+    saveReport(report)
     console(ok and 'OK' or 'ERROR', message)
     discordLog(ok and 'Items scan voltooid' or 'Items installatie mislukt',
         ('%s\nResources: **%d**\nBestanden: **%d**\nGevonden: **%d**\nConflicten: **%d**'):format(
             message, report.resources, report.files, report.found, #report.duplicates
         ), ok and 3066993 or 15158332)
 
-    if ok and (installedCount or 0) > 0 and GetResourceState(Config.OxInventoryResource) == 'started' then
-        console('WARN', 'ox_inventory draaide al. Herstart ox_inventory of de hele server om de items te laden.')
+    if ok and ((installedCount or 0) > 0 or (copiedImages or 0) > 0)
+        and GetResourceState(Config.OxInventoryResource) == 'started'
+    then
+        console('WARN', 'ox_inventory draaide al. Herstart ox_inventory of de hele server om items en afbeeldingen te laden.')
     end
     return ok
 end
@@ -426,8 +665,12 @@ RegisterCommand(Config.Command, function(source, args)
         run(true)
     elseif action == 'status' then
         if not lastReport then lastReport = scan(); saveReport(lastReport) end
-        console('INFO', ('Laatste scan: %d gevonden, %d te installeren, %d conflicten, %d fouten.'):format(
-            lastReport.found, lastReport.installable, #lastReport.duplicates, #lastReport.errors
+        console('INFO', ('Laatste scan: %d items gevonden, %d te installeren, %d itemconflicten, %d afbeeldingen gevonden, %d afbeeldingen ontbrekend.'):format(
+            lastReport.found,
+            lastReport.installable,
+            #lastReport.duplicates,
+            lastReport.imageStats.found,
+            lastReport.imageStats.missing
         ))
     else
         console('INFO', ('Gebruik: %s scan | install | status'):format(Config.Command))

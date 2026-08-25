@@ -3,7 +3,7 @@ game 'gta5'
 
 author 'Rico Scripts'
 description 'Scant resources en installeert ontbrekende items in ox_inventory'
-version '1.2.1'
+version '1.2.2'
 
 server_only 'yes'
 

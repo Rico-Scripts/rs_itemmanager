@@ -75,6 +75,10 @@ local function safeEnvironment()
         vector4 = function(...) return constructor('vector4', ...) end,
     }
 
+    -- Sommige ox_inventory-itembestanden gebruiken expliciet _G.vec3(...).
+    -- Laat _G alleen naar deze afgeschermde omgeving verwijzen.
+    environment._G = environment
+
     return setmetatable(environment, {
         __index = function(_, key)
             error(('niet-toegestane globale waarde: %s'):format(tostring(key)), 2)

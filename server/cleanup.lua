@@ -99,28 +99,34 @@ local function openDirectory(path)
     return handle
 end
 
-local function scanResourceDirectory(report, resource, relative, depth)
+local function joinPath(root, relative)
+    root = tostring(root or ''):gsub('\\', '/'):gsub('/+$', '')
+    if relative == '' then return root end
+    return root .. '/' .. relative
+end
+
+local function scanResourceDirectory(report, resource, root, relative, depth)
     if depth > 24 then
         addBlocker(report, resource .. '/' .. relative, 'maximale mapdiepte bereikt', 'resource')
         return
     end
 
-    local mount = ('@%s/%s'):format(resource, relative)
-    local directory, directoryError = openDirectory(mount)
+    local directoryPath = joinPath(root, relative)
+    local directory, directoryError = openDirectory(directoryPath)
     if not directory then
-        addBlocker(report, mount, directoryError or 'map kon niet worden gelezen', 'resource')
+        addBlocker(report, resource .. '/' .. relative, directoryError or 'map kon niet worden gelezen', 'resource')
         return
     end
 
     for entry in directory:lines() do
         if entry ~= '.' and entry ~= '..' then
             local child = relative ~= '' and (relative .. '/' .. entry) or entry
-            local childDirectory = openDirectory(('@%s/%s'):format(resource, child))
+            local childDirectory = openDirectory(joinPath(root, child))
 
             if childDirectory then
                 childDirectory:close()
                 if not (Cleanup.ExcludedDirectories or {})[entry] then
-                    scanResourceDirectory(report, resource, child, depth + 1)
+                    scanResourceDirectory(report, resource, root, child, depth + 1)
                 end
             else
                 local extension = entry:match('%.([%w]+)$')
@@ -153,12 +159,26 @@ local function scanResources(report)
         return
     end
 
+    if type(GetResourcePath) ~= 'function' then
+        addBlocker(report, 'resources', 'GetResourcePath ontbreekt; volledige resourcescan is onmogelijk', 'fatal')
+        return
+    end
+
     for index = 0, GetNumResources() - 1 do
         local resource = GetResourceByFindIndex(index)
         if resource and resource ~= RESOURCE then
             report.resourcesScanned = report.resourcesScanned + 1
-            scanResourceDirectory(report, resource, '', 0)
+            local root = GetResourcePath(resource)
+            if type(root) ~= 'string' or root == '' then
+                addBlocker(report, resource, 'fysiek resourcepad kon niet worden bepaald', 'resource')
+            else
+                scanResourceDirectory(report, resource, root, '', 0)
+            end
         end
+    end
+
+    if report.resourcesScanned > 0 and report.resourceFilesScanned == 0 then
+        addBlocker(report, 'resources', '0 tekstbestanden gescand; verwijderen is uit veiligheid geblokkeerd', 'fatal')
     end
 end
 

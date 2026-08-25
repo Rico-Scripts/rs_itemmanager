@@ -564,6 +564,24 @@ local function performCleanup(report)
     return true, ('%d items en %d afbeeldingen verwijderd'):format(#report.removed, #report.removedImages)
 end
 
+local function formatItemsFile()
+    local content = LoadResourceFile(Config.OxInventoryResource, Config.OxItemsFile)
+    if not content then return false, 'ox_inventory/items.lua kon niet worden gelezen' end
+    local updated = normalizeOuterBlankLines(content)
+    if updated == content then return true, 'items.lua bevat geen overtollige lege regels' end
+    local verified, verifyError = loadOxItems(updated)
+    if not verified then return false, 'geformatteerde items.lua is ongeldig: ' .. tostring(verifyError) end
+
+    local backup = ('data/cleanup-format-%s.lua'):format(os.date('%Y%m%d-%H%M%S'))
+    if not SaveResourceFile(RESOURCE, backup, content, -1) then
+        return false, 'format-back-up kon niet worden gemaakt'
+    end
+    if not SaveResourceFile(Config.OxInventoryResource, Config.OxItemsFile, updated, -1) then
+        return false, 'items.lua kon niet worden bijgewerkt; controleer add_filesystem_permission'
+    end
+    return true, 'overtollige lege regels verwijderd; herstart ox_inventory of de server'
+end
+
 local function allowed(source)
     return source == 0 or IsPlayerAceAllowed(source, Config.AcePermission)
 end
@@ -590,6 +608,10 @@ RegisterCommand(Cleanup.Command or 'rsitemcleanup', function(source, args)
                 Cleanup.ConfirmationSeconds or 300, Cleanup.Command or 'rsitemcleanup', report.confirmation
             ))
         end
+    elseif action == 'format' then
+        local ok, message = formatItemsFile()
+        log(ok and 'OK' or 'ERROR', message)
+        discordLog('Ox inventory formatter', message, ok and 3066993 or 15158332)
     elseif action == 'remove' then
         local confirmation = tostring(args[2] or '')
         if not lastAudit or confirmation ~= lastAudit.confirmation or os.time() > lastAudit.expiresAt then
@@ -609,7 +631,7 @@ RegisterCommand(Cleanup.Command or 'rsitemcleanup', function(source, args)
         log(ok and 'OK' or 'ERROR', message)
         discordLog('Ox inventory cleanup', message, ok and 3066993 or 15158332)
     else
-        log('INFO', ('Gebruik: %s scan | remove CODE'):format(Cleanup.Command or 'rsitemcleanup'))
+        log('INFO', ('Gebruik: %s scan | remove CODE | format'):format(Cleanup.Command or 'rsitemcleanup'))
     end
 end, false)
 

@@ -120,6 +120,12 @@ Verwijderen wordt geblokkeerd als een databasescan of resourcescan onvolledig is
 
 Na het verwijderen worden overtollige lege regels tussen itemblokken automatisch opgeruimd. Lege regels binnen functies, tabellen en teksten blijven behouden.
 
+Reeds bestaande lege ruimtes kun je afzonderlijk opruimen zonder items te verwijderen:
+
+```text
+rsitemcleanup format
+```
+
 ## Logging
 
 De resource verstuurt het event `rs_discordlogs:server:log`. Vul eventueel daarnaast `Config.Webhook` in voor directe Discord-webhooklogging.

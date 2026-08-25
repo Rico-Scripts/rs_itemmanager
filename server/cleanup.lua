@@ -121,20 +121,17 @@ local function scanResourceDirectory(report, resource, root, relative, depth)
     for entry in directory:lines() do
         if entry ~= '.' and entry ~= '..' then
             local child = relative ~= '' and (relative .. '/' .. entry) or entry
-            local childDirectory = openDirectory(joinPath(root, child))
+            local extension = entry:match('%.([%w]+)$')
+            extension = extension and extension:lower()
+            local isTextFile = extension and (Cleanup.TextExtensions or {})[extension]
+            local isTargetItems = resource == Config.OxInventoryResource and child == Config.OxItemsFile
+            local isManagerFile = resource == RESOURCE
 
-            if childDirectory then
-                childDirectory:close()
-                if not (Cleanup.ExcludedDirectories or {})[entry] then
-                    scanResourceDirectory(report, resource, root, child, depth + 1)
-                end
-            else
-                local extension = entry:match('%.([%w]+)$')
-                extension = extension and extension:lower()
-                local isTargetItems = resource == Config.OxInventoryResource and child == Config.OxItemsFile
-                local isManagerFile = resource == RESOURCE
-
-                if extension and (Cleanup.TextExtensions or {})[extension] and not isTargetItems and not isManagerFile then
+            -- Op sommige FXServer-builds geeft io.readdir ook voor een bestand
+            -- een lege handle terug. Probeer bekende tekstbestanden daarom eerst
+            -- met LoadResourceFile; anders werden alle bestanden als map gezien.
+            if isTextFile then
+                if not isTargetItems and not isManagerFile then
                     local content = LoadResourceFile(resource, child)
                     if not content then
                         addBlocker(report, resource .. '/' .. child, 'tekstbestand kon niet worden gelezen', 'resource')
@@ -146,6 +143,12 @@ local function scanResourceDirectory(report, resource, root, relative, depth)
                         report.resourceFilesScanned = report.resourceFilesScanned + 1
                         markResourceReferences(report, resource, child, content)
                     end
+                end
+            elseif not (Cleanup.ExcludedDirectories or {})[entry] then
+                local childDirectory = openDirectory(joinPath(root, child))
+                if childDirectory then
+                    childDirectory:close()
+                    scanResourceDirectory(report, resource, root, child, depth + 1)
                 end
             end
         end

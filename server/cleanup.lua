@@ -40,14 +40,19 @@ end
 
 local function safeEnvironment()
     local function vector(...) return { ... } end
-    return setmetatable({
+    local environment = {
         vec2 = vector,
         vec3 = vector,
         vec4 = vector,
         vector2 = vector,
         vector3 = vector,
         vector4 = vector,
-    }, {
+    }
+
+    -- Ondersteun _G.vec3(...) zonder de echte globale omgeving vrij te geven.
+    environment._G = environment
+
+    return setmetatable(environment, {
         __index = function(_, key)
             error(('niet-toegestane globale waarde in items.lua: %s'):format(tostring(key)), 2)
         end

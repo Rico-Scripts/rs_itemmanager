@@ -40,6 +40,13 @@ end
 
 local function safeEnvironment()
     local function vector(...) return { ... } end
+    local unknownProxy
+    unknownProxy = setmetatable({}, {
+        __index = function() return unknownProxy end,
+        __call = function() return nil end,
+        __len = function() return 0 end,
+        __tostring = function() return '<afgeschermde globale waarde>' end,
+    })
     local environment = {
         vec2 = vector,
         vec3 = vector,
@@ -53,9 +60,7 @@ local function safeEnvironment()
     environment._G = environment
 
     return setmetatable(environment, {
-        __index = function(_, key)
-            error(('niet-toegestane globale waarde in items.lua: %s'):format(tostring(key)), 2)
-        end
+        __index = function() return unknownProxy end
     })
 end
 
